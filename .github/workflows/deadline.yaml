@@ -1,0 +1,43 @@
+name: Deadline Guard
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce time limit based on fork creation time
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEADLINE_MINUTES: "120"
+        run: |
+          set -euo pipefail
+          owner_repo="${GITHUB_REPOSITORY}"   # np. candidate-login/repo-name
+
+          # Pobierz metadata repo (forka) – dla forków .created_at to czas utworzenia forka
+          repo_json="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${owner_repo}")"
+
+          created_at="$(echo "$repo_json" | jq -r '.created_at')"
+
+          if [ -z "${created_at}" ] || [ "${created_at}" = "null" ]; then
+            echo "Nie udało się odczytać created_at repo. Przerywam."; exit 1
+          fi
+
+          start_ts="$(date -u -d "${created_at}" +%s)"
+          now_ts="$(date -u +%s)"
+          deadline_ts="$(( start_ts + DEADLINE_MINUTES*60 ))"
+
+          echo "Fork created_at: ${created_at}"
+          echo "Deadline (UTC):  $(date -u -d @${deadline_ts} '+%Y-%m-%d %H:%M:%S')"
+
+          if [ "${now_ts}" -gt "${deadline_ts}" ]; then
+            echo "::error ::Czas minął. Od utworzenia forka minęło już ${DEADLINE_MINUTES} minut."
+            exit 1
+          else
+            echo "Deadline OK – kontynuuj pracę."
+          fi
